@@ -10,19 +10,20 @@ import qs.Modules.Plugins
 PluginComponent {
     id: root
     
-    pluginId: "monitorToggle"
-    layerNamespacePlugin: "monitor-toggle"
+    pluginId: "displayManager"
+    layerNamespacePlugin: "displayManager"
 
     property var monitors: []
     property bool isLoading: false
     property string outputBuffer: ""
     property var syncedBrightness: ({})
     property bool popoutVisible: false
+    property var pendingBrightness: null  // Monitor info for brightness to apply after turning on
 
     // Only sync when popout is visible (saves CPU when closed)
     Timer {
         id: syncTimer
-        interval: 500
+        interval: 1000
         running: root.popoutVisible
         repeat: true
         onTriggered: root.syncBrightnessFromStorage()
@@ -33,7 +34,7 @@ PluginComponent {
         var updated = {}
         for (var i = 0; i < monitors.length; i++) {
             var key = "brightness_" + monitors[i].name
-            updated[key] = pluginService.loadPluginData("monitorToggle", key, 50)
+            updated[key] = pluginService.loadPluginData("displayManager", key, 50)
         }
         if (JSON.stringify(updated) !== JSON.stringify(syncedBrightness)) {
             syncedBrightness = updated
@@ -336,6 +337,21 @@ PluginComponent {
 
     function toggleMonitor(name, currentState) {
         Quickshell.execDetached(["niri", "msg", "output", name, currentState ? "off" : "on"])
+        
+        // If turning on, schedule brightness application after monitor is ready
+        if (!currentState) {
+            var mon = monitors.find(m => m.name === name)
+            if (mon) {
+                pendingBrightness = {
+                    name: mon.name,
+                    serial: mon.serial,
+                    model: mon.model,
+                    value: getBrightness(mon.name)
+                }
+                brightnessApplyTimer.restart()
+            }
+        }
+        
         refreshTimer.restart()
     }
 
@@ -348,7 +364,7 @@ PluginComponent {
         Quickshell.execDetached(["sh", "-c", cmd])
         
         if (pluginService) {
-            pluginService.savePluginData("monitorToggle", "brightness_" + monitorName, value)
+            pluginService.savePluginData("displayManager", "brightness_" + monitorName, value)
             syncBrightnessFromStorage()
         }
     }
@@ -358,6 +374,24 @@ PluginComponent {
         interval: 600
         repeat: false
         onTriggered: refreshMonitors()
+    }
+
+    // Timer to apply brightness after turning on a monitor (needs delay for monitor to be ready)
+    Timer {
+        id: brightnessApplyTimer
+        interval: 1500  // Wait for monitor to fully turn on before applying brightness
+        repeat: false
+        onTriggered: {
+            if (root.pendingBrightness) {
+                root.applyBrightness(
+                    root.pendingBrightness.name,
+                    root.pendingBrightness.serial,
+                    root.pendingBrightness.model,
+                    root.pendingBrightness.value
+                )
+                root.pendingBrightness = null
+            }
+        }
     }
     
     Component.onCompleted: refreshMonitors()

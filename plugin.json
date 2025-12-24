@@ -1,0 +1,11 @@
+{
+  "id": "displayManager",
+  "name": "Display Manager",
+  "description": "A widget to turn on/off and adjust brightness of multiple displays in Niri.",
+  "version": "1.0.0",
+  "author": "felri",
+  "type": "widget",
+  "component": "./DisplayManager.qml",
+  "icon": "desktop_windows",
+  "permissions": ["process"]
+}

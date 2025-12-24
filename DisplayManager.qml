@@ -17,6 +17,7 @@ PluginComponent {
     property bool isLoading: false
     property string outputBuffer: ""
     property var syncedBrightness: ({})
+    property var syncedContrast: ({})
     property bool popoutVisible: false
     property var pendingBrightness: null  // Monitor info for brightness to apply after turning on
 
@@ -26,18 +27,29 @@ PluginComponent {
         interval: 1000
         running: root.popoutVisible
         repeat: true
-        onTriggered: root.syncBrightnessFromStorage()
+        onTriggered: root.syncSettingsFromStorage()
     }
 
-    function syncBrightnessFromStorage() {
+    function syncSettingsFromStorage() {
         if (!pluginService || monitors.length === 0) return
-        var updated = {}
+        
+        // Sync Brightness
+        var updatedBrightness = {}
+        var updatedContrast = {}
+        
         for (var i = 0; i < monitors.length; i++) {
-            var key = "brightness_" + monitors[i].name
-            updated[key] = pluginService.loadPluginData("displayManager", key, 50)
+            var bKey = "brightness_" + monitors[i].name
+            updatedBrightness[bKey] = pluginService.loadPluginData("displayManager", bKey, 50)
+            
+            var cKey = "contrast_" + monitors[i].name
+            updatedContrast[cKey] = pluginService.loadPluginData("displayManager", cKey, 50)
         }
-        if (JSON.stringify(updated) !== JSON.stringify(syncedBrightness)) {
-            syncedBrightness = updated
+        
+        if (JSON.stringify(updatedBrightness) !== JSON.stringify(syncedBrightness)) {
+            syncedBrightness = updatedBrightness
+        }
+        if (JSON.stringify(updatedContrast) !== JSON.stringify(syncedContrast)) {
+            syncedContrast = updatedContrast
         }
     }
 
@@ -47,10 +59,16 @@ PluginComponent {
         return 50
     }
 
+    function getContrast(monitorName) {
+        var key = "contrast_" + monitorName
+        if (syncedContrast[key] !== undefined) return syncedContrast[key]
+        return 50
+    }
+
     // --- Layout ---
     popoutWidth: 420
     popoutHeight: {
-        var calculated = 100 + (monitors.length * 90)
+        var calculated = 100 + (monitors.length * 170)
         if (calculated < 300) return 300
         if (calculated > 750) return 750
         return calculated
@@ -126,14 +144,14 @@ PluginComponent {
                     height: parent.height
                     clip: true
                     cellWidth: parent.width
-                    cellHeight: 90
+                    cellHeight: 170
 
                     model: root.monitors
 
                     delegate: Rectangle {
                         id: card
                         width: monitorList.cellWidth
-                        height: 80 
+                        height: 160 
                         radius: 16
                         color: Theme.surfaceContainerHigh
                         border.width: 1
@@ -144,98 +162,238 @@ PluginComponent {
                             anchors.margins: 16
                             spacing: 16
 
-                            // Icon
-                            Rectangle {
-                                width: 48
-                                height: 48
-                                radius: 14
-                                color: modelData.enabled ? Theme.primary : Theme.surfaceContainerHighest
-                                anchors.verticalCenter: parent.verticalCenter
-                                
-                                DankIcon {
-                                    anchors.centerIn: parent
-                                    name: "desktop_windows"
-                                    size: 24
-                                    color: modelData.enabled ? Theme.onPrimary : Theme.surfaceVariantText
-                                }
-                            }
-
-                            // Info & Slider
+                            // Info & Controls
                             Column {
-                                width: parent.width - 48 - 56 - 32 
+                                width: parent.width - 56 - 32 
                                 anchors.verticalCenter: parent.verticalCenter
-                                spacing: 12
+                                spacing: 8
 
-                                Column {
+                                // Header Row: Info + Scale
+                                Row {
                                     width: parent.width
-                                    StyledText {
-                                        text: modelData.model
-                                        font.weight: Font.Bold
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        color: Theme.surfaceText
-                                        elide: Text.ElideRight
-                                        width: parent.width
-                                    }
-                                    StyledText {
-                                        text: modelData.name + (modelData.serial ? "" : " (No Serial)")
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceVariantText
-                                        elide: Text.ElideRight
-                                        width: parent.width
-                                        opacity: 0.8
-                                    }
-                                }
+                                    spacing: 8
 
-                                Slider {
-                                    id: brightSlider
-                                    width: parent.width
-                                    height: 20
-                                    from: 0
-                                    to: 100
-                                    enabled: modelData.enabled
-                                    value: root.getBrightness(modelData.name)
-
-                                    background: Rectangle {
-                                        x: brightSlider.leftPadding
-                                        y: brightSlider.topPadding + brightSlider.availableHeight / 2 - height / 2
-                                        implicitWidth: 200
-                                        implicitHeight: 4
-                                        width: brightSlider.availableWidth
-                                        height: implicitHeight
-                                        radius: 2
-                                        color: Theme.surfaceContainerHighest
-
-                                        Rectangle {
-                                            width: brightSlider.visualPosition * parent.width
-                                            height: parent.height
-                                            color: modelData.enabled ? Theme.primary : Theme.outline
-                                            radius: 2
+                                    Column {
+                                        width: parent.width - 100
+                                        StyledText {
+                                            text: modelData.model
+                                            font.weight: Font.Bold
+                                            font.pixelSize: Theme.fontSizeMedium
+                                            color: Theme.surfaceText
+                                            elide: Text.ElideRight
+                                            width: parent.width
+                                        }
+                                        StyledText {
+                                            text: modelData.name + (modelData.serial ? "" : " (No Serial)")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceVariantText
+                                            elide: Text.ElideRight
+                                            width: parent.width
+                                            opacity: 0.8
                                         }
                                     }
 
-                                    handle: Rectangle {
-                                        x: brightSlider.leftPadding + brightSlider.visualPosition * (brightSlider.availableWidth - width)
-                                        y: brightSlider.topPadding + brightSlider.availableHeight / 2 - height / 2
-                                        implicitWidth: 16
-                                        implicitHeight: 16
-                                        radius: 8
-                                        color: brightSlider.pressed ? Theme.primary : Theme.surfaceText
-                                        border.color: Theme.surfaceContainer
+                                    // Scale Control
+                                    Row {
+                                        visible: modelData.enabled
+                                        spacing: 4
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        
+                                        Rectangle {
+                                            width: 24; height: 24; radius: 12
+                                            color: Theme.surfaceContainerHighest
+                                            DankIcon { anchors.centerIn: parent; name: "remove"; size: 16; color: Theme.surfaceText }
+                                            MouseArea { anchors.fill: parent; onClicked: root.applyScale(modelData.name, Math.max(0.5, modelData.scale - 0.25)) }
+                                        }
+                                        
+                                        StyledText {
+                                            text: modelData.scale.toFixed(2) + "x"
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 36
+                                            horizontalAlignment: Text.AlignHCenter
+                                            font.pixelSize: Theme.fontSizeSmall
+                                        }
+                                        
+                                        Rectangle {
+                                            width: 24; height: 24; radius: 12
+                                            color: Theme.surfaceContainerHighest
+                                            DankIcon { anchors.centerIn: parent; name: "add"; size: 16; color: Theme.surfaceText }
+                                            MouseArea { anchors.fill: parent; onClicked: root.applyScale(modelData.name, Math.min(3.0, modelData.scale + 0.25)) }
+                                        }
                                     }
+                                }
+
+                                // Mode Selector
+                                Row {
+                                    width: parent.width
+                                    spacing: 8
+                                    visible: modelData.enabled
+                                    DankIcon { name: "settings"; size: 16; color: Theme.surfaceVariantText; anchors.verticalCenter: parent.verticalCenter }
                                     
-                                    onMoved: brightnessTimer.restart()
+                                    ComboBox {
+                                        id: modeCombo
+                                        width: parent.width - 24
+                                        height: 30
+                                        model: modelData.modes
+                                        textRole: "text"
+                                        currentIndex: modelData.currentModeIndex
+                                        
+                                        delegate: ItemDelegate {
+                                            width: modeCombo.width
+                                            contentItem: Text {
+                                                text: modelData.text
+                                                color: Theme.surfaceText
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                elide: Text.ElideRight
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+                                            background: Rectangle {
+                                                color: modeCombo.highlightedIndex === index ? Theme.primaryContainer : "transparent"
+                                            }
+                                        }
+
+                                        contentItem: Text {
+                                            leftPadding: 10
+                                            rightPadding: modeCombo.indicator.width + modeCombo.spacing
+                                            text: modeCombo.displayText
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceText
+                                            verticalAlignment: Text.AlignVCenter
+                                            elide: Text.ElideRight
+                                        }
+
+                                        background: Rectangle {
+                                            implicitWidth: 120
+                                            implicitHeight: 30
+                                            color: Theme.surfaceContainerHighest
+                                            radius: 4
+                                        }
+                                        
+                                        onActivated: (index) => {
+                                            var m = modelData.modes[index]
+                                            root.applyMode(modelData.name, m.width, m.height, m.refresh)
+                                        }
+                                    }
+                                }
+
+                                // Brightness Slider
+                                Row {
+                                    width: parent.width
+                                    spacing: 8
+                                    DankIcon { name: "brightness_6"; size: 16; color: Theme.surfaceVariantText; anchors.verticalCenter: parent.verticalCenter }
                                     
-                                    Timer {
-                                        id: brightnessTimer
-                                        interval: 300
-                                        repeat: false
-                                        onTriggered: {
-                                            root.applyBrightness(
-                                                modelData.name,
-                                                modelData.serial,
-                                                modelData.model,
-                                                brightSlider.value
-                                            )
+                                    Slider {
+                                        id: brightSlider
+                                        width: parent.width - 24
+                                        height: 20
+                                        from: 0
+                                        to: 100
+                                        enabled: modelData.enabled
+                                        value: root.getBrightness(modelData.name)
+
+                                        background: Rectangle {
+                                            x: brightSlider.leftPadding
+                                            y: brightSlider.topPadding + brightSlider.availableHeight / 2 - height / 2
+                                            implicitWidth: 200
+                                            implicitHeight: 4
+                                            width: brightSlider.availableWidth
+                                            height: implicitHeight
+                                            radius: 2
+                                            color: Theme.surfaceContainerHighest
+
+                                            Rectangle {
+                                                width: brightSlider.visualPosition * parent.width
+                                                height: parent.height
+                                                color: modelData.enabled ? Theme.primary : Theme.outline
+                                                radius: 2
+                                            }
+                                        }
+
+                                        handle: Rectangle {
+                                            x: brightSlider.leftPadding + brightSlider.visualPosition * (brightSlider.availableWidth - width)
+                                            y: brightSlider.topPadding + brightSlider.availableHeight / 2 - height / 2
+                                            implicitWidth: 16
+                                            implicitHeight: 16
+                                            radius: 8
+                                            color: brightSlider.pressed ? Theme.primary : Theme.surfaceText
+                                            border.color: Theme.surfaceContainer
+                                        }
+                                        
+                                        onMoved: brightnessTimer.restart()
+                                        
+                                        Timer {
+                                            id: brightnessTimer
+                                            interval: 300
+                                            repeat: false
+                                            onTriggered: {
+                                                root.applyBrightness(
+                                                    modelData.name,
+                                                    modelData.serial,
+                                                    modelData.model,
+                                                    brightSlider.value
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Contrast Slider
+                                Row {
+                                    width: parent.width
+                                    spacing: 8
+                                    DankIcon { name: "contrast"; size: 16; color: Theme.surfaceVariantText; anchors.verticalCenter: parent.verticalCenter }
+                                    
+                                    Slider {
+                                        id: contrastSlider
+                                        width: parent.width - 24
+                                        height: 20
+                                        from: 0
+                                        to: 100
+                                        enabled: modelData.enabled
+                                        value: root.getContrast(modelData.name)
+
+                                        background: Rectangle {
+                                            x: contrastSlider.leftPadding
+                                            y: contrastSlider.topPadding + contrastSlider.availableHeight / 2 - height / 2
+                                            implicitWidth: 200
+                                            implicitHeight: 4
+                                            width: contrastSlider.availableWidth
+                                            height: implicitHeight
+                                            radius: 2
+                                            color: Theme.surfaceContainerHighest
+
+                                            Rectangle {
+                                                width: contrastSlider.visualPosition * parent.width
+                                                height: parent.height
+                                                color: modelData.enabled ? Theme.secondary : Theme.outline
+                                                radius: 2
+                                            }
+                                        }
+
+                                        handle: Rectangle {
+                                            x: contrastSlider.leftPadding + contrastSlider.visualPosition * (contrastSlider.availableWidth - width)
+                                            y: contrastSlider.topPadding + contrastSlider.availableHeight / 2 - height / 2
+                                            implicitWidth: 16
+                                            implicitHeight: 16
+                                            radius: 8
+                                            color: contrastSlider.pressed ? Theme.secondary : Theme.surfaceText
+                                            border.color: Theme.surfaceContainer
+                                        }
+                                        
+                                        onMoved: contrastTimer.restart()
+                                        
+                                        Timer {
+                                            id: contrastTimer
+                                            interval: 300
+                                            repeat: false
+                                            onTriggered: {
+                                                root.applyContrast(
+                                                    modelData.name,
+                                                    modelData.serial,
+                                                    modelData.model,
+                                                    contrastSlider.value
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -305,11 +463,25 @@ PluginComponent {
                     
                     for (var key in data) {
                         var info = data[key]
+                        
+                        var modes = []
+                        if (info.modes) {
+                            modes = info.modes.map(m => ({
+                                width: m.width,
+                                height: m.height,
+                                refresh: m.refresh_rate / 1000.0,
+                                text: `${m.width}x${m.height} @ ${(m.refresh_rate / 1000.0).toFixed(2)}Hz`
+                            }))
+                        }
+
                         list.push({
                             name: key,
                             serial: info.serial || info.serial_number || "",
-                            enabled: info.current_mode !== null && info.active !== false,
-                            model: info.model || key
+                            enabled: info.current_mode !== null && (info.active !== undefined ? info.active : true),
+                            model: info.model || key,
+                            scale: (info.logical && info.logical.scale) ? info.logical.scale : 1.0,
+                            modes: modes,
+                            currentModeIndex: info.current_mode !== null ? info.current_mode : -1
                         })
                     }
 
@@ -322,8 +494,8 @@ PluginComponent {
                     })
 
                     root.monitors = list
-                    // Sync brightness values after monitors are loaded
-                    Qt.callLater(root.syncBrightnessFromStorage)
+                    // Sync settings values after monitors are loaded
+                    Qt.callLater(root.syncSettingsFromStorage)
                 }
             } catch (e) { console.error(e) }
         }
@@ -365,8 +537,34 @@ PluginComponent {
         
         if (pluginService) {
             pluginService.savePluginData("displayManager", "brightness_" + monitorName, value)
-            syncBrightnessFromStorage()
+            syncSettingsFromStorage()
         }
+    }
+
+    function applyContrast(monitorName, serial, model, value) {
+        var val = Math.round(value)
+        var cmd = serial ? `ddcutil setvcp 12 ${val} --sn '${serial}' --noverify`
+                 : model  ? `ddcutil setvcp 12 ${val} --model '${model}' --noverify`
+                          : `ddcutil setvcp 12 ${val} --noverify`
+
+        Quickshell.execDetached(["sh", "-c", cmd])
+        
+        if (pluginService) {
+            pluginService.savePluginData("displayManager", "contrast_" + monitorName, value)
+            syncSettingsFromStorage()
+        }
+    }
+
+    function applyScale(monitorName, scale) {
+        Quickshell.execDetached(["niri", "msg", "output", monitorName, "scale", scale.toString()])
+        // Refresh to update the UI with the new scale (though niri might take a moment)
+        refreshTimer.restart()
+    }
+
+    function applyMode(monitorName, width, height, refresh) {
+        var modeStr = `${width}x${height}@${refresh.toFixed(3)}`
+        Quickshell.execDetached(["niri", "msg", "output", monitorName, "mode", modeStr])
+        refreshTimer.restart()
     }
 
     Timer {

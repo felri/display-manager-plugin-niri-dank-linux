@@ -508,6 +508,15 @@ PluginComponent {
     }
 
     function toggleMonitor(name, currentState) {
+        // Safeguard: Prevent turning off the last active monitor
+        if (currentState) {
+            var enabledCount = 0
+            for (var i = 0; i < monitors.length; i++) {
+                if (monitors[i].enabled) enabledCount++
+            }
+            if (enabledCount <= 1) return
+        }
+
         Quickshell.execDetached(["niri", "msg", "output", name, currentState ? "off" : "on"])
         
         // If turning on, schedule brightness application after monitor is ready

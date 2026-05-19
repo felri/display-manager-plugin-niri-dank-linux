@@ -268,6 +268,25 @@ PluginComponent {
                                             color: Theme.surfaceContainerHighest
                                             radius: 4
                                         }
+
+                                        popup: Popup {
+                                            y: modeCombo.height
+                                            width: modeCombo.width
+                                            implicitHeight: contentItem.implicitHeight
+                                            padding: 2
+
+                                            contentItem: ListView {
+                                                clip: true
+                                                implicitHeight: contentHeight
+                                                model: modeCombo.delegateModel
+                                                currentIndex: modeCombo.highlightedIndex
+                                            }
+
+                                            background: Rectangle {
+                                                color: Theme.surfaceContainerHighest
+                                                radius: 4
+                                            }
+                                        }
                                         
                                         onActivated: (index) => {
                                             var m = modelData.modes[index]

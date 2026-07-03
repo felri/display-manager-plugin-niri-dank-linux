@@ -80,7 +80,7 @@ PluginComponent {
             spacing: Theme.spacingS
             DankIcon {
                 name: "desktop_windows"
-                size: Theme.iconSize
+                size: root.iconSize
                 color: Theme.surfaceVariantText
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -92,7 +92,7 @@ PluginComponent {
             spacing: Theme.spacingXS
             DankIcon {
                 name: "desktop_windows"
-                size: Theme.iconSize
+                size: root.iconSize
                 color: root.monitors.some(m => m.enabled) ? Theme.primary : Theme.surfaceVariantText
                 anchors.horizontalCenter: parent.horizontalCenter
             }

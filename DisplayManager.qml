@@ -68,7 +68,7 @@ PluginComponent {
     // --- Layout ---
     popoutWidth: 420
     popoutHeight: {
-        var calculated = 100 + (monitors.length * 170)
+        var calculated = 100 + (monitors.length * 210)
         if (calculated < 300) return 300
         if (calculated > 750) return 750
         return calculated
@@ -144,18 +144,51 @@ PluginComponent {
                     height: parent.height
                     clip: true
                     cellWidth: parent.width
-                    cellHeight: 170
+                    cellHeight: 210
 
                     model: root.monitors
 
                     delegate: Rectangle {
                         id: card
                         width: monitorList.cellWidth
-                        height: 160 
+                        height: 200
                         radius: 16
                         color: Theme.surfaceContainerHigh
                         border.width: 1
                         border.color: modelData.enabled ? Theme.withAlpha(Theme.primary, 0.3) : "transparent"
+                        // Derived mode data for the two-dropdown selector
+                        property var resolutions: root.getResolutions(modelData.modes)
+                        property int resIndex: 0
+                        property int rrIndex: 0
+                        property var refreshRates: resolutions.length > 0
+                            ? root.getRefreshRates(modelData.modes, resolutions[resIndex].width, resolutions[resIndex].height)
+                            : []
+
+                        Component.onCompleted: initIndices()
+
+                        function initIndices() {
+                            if (resolutions.length === 0) return
+                            var curMode = (modelData.currentModeIndex >= 0 && modelData.currentModeIndex < modelData.modes.length)
+                                ? modelData.modes[modelData.currentModeIndex] : null
+                            var ri = 0
+                            if (curMode) {
+                                for (var i = 0; i < resolutions.length; i++) {
+                                    if (resolutions[i].width === curMode.width && resolutions[i].height === curMode.height) { ri = i; break }
+                                }
+                            }
+                            resIndex = ri
+                            var rates = refreshRates
+                            var rri = 0
+                            if (curMode) {
+                                for (var j = 0; j < rates.length; j++) {
+                                    if (Math.abs(rates[j].refresh - curMode.refresh) < 0.01) { rri = j; break }
+                                }
+                            }
+                            rrIndex = rri
+                            resCombo.currentIndex = ri
+                            rrCombo.currentIndex = rri
+                        }
+
 
                         Row {
                             anchors.fill: parent
@@ -223,74 +256,165 @@ PluginComponent {
                                     }
                                 }
 
-                                // Mode Selector
-                                Row {
+                                // Resolution + Refresh selectors
+                                Column {
                                     width: parent.width
                                     spacing: 8
                                     visible: modelData.enabled
-                                    DankIcon { name: "settings"; size: 16; color: Theme.surfaceVariantText; anchors.verticalCenter: parent.verticalCenter }
-                                    
-                                    ComboBox {
-                                        id: modeCombo
-                                        width: parent.width - 24
-                                        height: 30
-                                        model: modelData.modes
-                                        textRole: "text"
-                                        currentIndex: modelData.currentModeIndex
-                                        
-                                        delegate: ItemDelegate {
-                                            width: modeCombo.width
+
+                                    // Resolution
+                                    Row {
+                                        width: parent.width
+                                        spacing: 8
+                                        DankIcon { name: "settings"; size: 16; color: Theme.surfaceVariantText; anchors.verticalCenter: parent.verticalCenter }
+
+                                        ComboBox {
+                                            id: resCombo
+                                            width: parent.width - 24
+                                            height: 30
+                                            model: card.resolutions
+                                            textRole: "text"
+
+                                            delegate: ItemDelegate {
+                                                width: resCombo.width
+                                                contentItem: Text {
+                                                    text: modelData.text
+                                                    color: Theme.surfaceText
+                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    elide: Text.ElideRight
+                                                    verticalAlignment: Text.AlignVCenter
+                                                }
+                                                background: Rectangle {
+                                                    color: resCombo.highlightedIndex === index ? Theme.primaryContainer : "transparent"
+                                                }
+                                            }
+
                                             contentItem: Text {
-                                                text: modelData.text
-                                                color: Theme.surfaceText
+                                                text: resCombo.displayText
                                                 font.pixelSize: Theme.fontSizeSmall
-                                                elide: Text.ElideRight
+                                                color: Theme.surfaceText
                                                 verticalAlignment: Text.AlignVCenter
-                                            }
-                                            background: Rectangle {
-                                                color: modeCombo.highlightedIndex === index ? Theme.primaryContainer : "transparent"
-                                            }
-                                        }
-
-                                        contentItem: Text {
-                                            leftPadding: 10
-                                            rightPadding: modeCombo.indicator.width + modeCombo.spacing
-                                            text: modeCombo.displayText
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceText
-                                            verticalAlignment: Text.AlignVCenter
-                                            elide: Text.ElideRight
-                                        }
-
-                                        background: Rectangle {
-                                            implicitWidth: 120
-                                            implicitHeight: 30
-                                            color: Theme.surfaceContainerHighest
-                                            radius: 4
-                                        }
-
-                                        popup: Popup {
-                                            y: modeCombo.height
-                                            width: modeCombo.width
-                                            implicitHeight: contentItem.implicitHeight
-                                            padding: 2
-
-                                            contentItem: ListView {
-                                                clip: true
-                                                implicitHeight: contentHeight
-                                                model: modeCombo.delegateModel
-                                                currentIndex: modeCombo.highlightedIndex
+                                                elide: Text.ElideRight
                                             }
 
                                             background: Rectangle {
+                                                implicitWidth: 120
+                                                implicitHeight: 30
                                                 color: Theme.surfaceContainerHighest
                                                 radius: 4
                                             }
+
+                                            popup: Popup {
+                                                y: resCombo.height
+                                                width: resCombo.width
+                                                implicitHeight: contentItem.implicitHeight
+                                                padding: 2
+
+                                                contentItem: ListView {
+                                                    clip: true
+                                                    implicitHeight: contentHeight
+                                                    model: resCombo.delegateModel
+                                                    currentIndex: resCombo.highlightedIndex
+                                                }
+
+                                                background: Rectangle {
+                                                    color: Theme.surfaceContainerHighest
+                                                    radius: 4
+                                                }
+                                            }
+
+                                            onActivated: (index) => {
+                                                var res = card.resolutions[index]
+                                                var rates = root.getRefreshRates(modelData.modes, res.width, res.height)
+                                                if (rates.length === 0) return
+                                                // Prefer keeping the current refresh rate; otherwise take the highest.
+                                                var curMode = (modelData.currentModeIndex >= 0) ? modelData.modes[modelData.currentModeIndex] : null
+                                                var target = null
+                                                if (curMode) {
+                                                    for (var i = 0; i < rates.length; i++) {
+                                                        if (Math.abs(rates[i].refresh - curMode.refresh) < 0.01) { target = rates[i]; break }
+                                                    }
+                                                }
+                                                if (!target) target = rates[0] // rates are sorted highest-first
+                                                var newRr = 0
+                                                for (var k = 0; k < rates.length; k++) {
+                                                    if (Math.abs(rates[k].refresh - target.refresh) < 0.01) { newRr = k; break }
+                                                }
+                                                card.resIndex = index
+                                                card.rrIndex = newRr
+                                                rrCombo.currentIndex = newRr
+                                                root.applyMode(modelData.name, res.width, res.height, target.refresh)
+                                            }
                                         }
-                                        
-                                        onActivated: (index) => {
-                                            var m = modelData.modes[index]
-                                            root.applyMode(modelData.name, m.width, m.height, m.refresh)
+                                    }
+
+                                    // Refresh rate
+                                    Row {
+                                        width: parent.width
+                                        spacing: 8
+                                        DankIcon { name: "speed"; size: 16; color: Theme.surfaceVariantText; anchors.verticalCenter: parent.verticalCenter }
+
+                                        ComboBox {
+                                            id: rrCombo
+                                            width: parent.width - 24
+                                            height: 30
+                                            model: card.refreshRates
+                                            textRole: "text"
+
+                                            delegate: ItemDelegate {
+                                                width: rrCombo.width
+                                                contentItem: Text {
+                                                    text: modelData.text
+                                                    color: Theme.surfaceText
+                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    elide: Text.ElideRight
+                                                    verticalAlignment: Text.AlignVCenter
+                                                }
+                                                background: Rectangle {
+                                                    color: rrCombo.highlightedIndex === index ? Theme.primaryContainer : "transparent"
+                                                }
+                                            }
+
+                                            contentItem: Text {
+                                                text: rrCombo.displayText
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: Theme.surfaceText
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                            }
+
+                                            background: Rectangle {
+                                                implicitWidth: 100
+                                                implicitHeight: 30
+                                                color: Theme.surfaceContainerHighest
+                                                radius: 4
+                                            }
+
+                                            popup: Popup {
+                                                y: rrCombo.height
+                                                width: rrCombo.width
+                                                implicitHeight: contentItem.implicitHeight
+                                                padding: 2
+
+                                                contentItem: ListView {
+                                                    clip: true
+                                                    implicitHeight: contentHeight
+                                                    model: rrCombo.delegateModel
+                                                    currentIndex: rrCombo.highlightedIndex
+                                                }
+
+                                                background: Rectangle {
+                                                    color: Theme.surfaceContainerHighest
+                                                    radius: 4
+                                                }
+                                            }
+
+                                            onActivated: (index) => {
+                                                var rate = card.refreshRates[index]
+                                                var res = card.resolutions[card.resIndex]
+                                                card.rrIndex = index
+                                                root.applyMode(modelData.name, res.width, res.height, rate.refresh)
+                                            }
                                         }
                                     }
                                 }
@@ -587,6 +711,36 @@ PluginComponent {
         Quickshell.execDetached(["niri", "msg", "output", monitorName, "scale", scale.toString()])
         // Refresh to update the UI with the new scale (though niri might take a moment)
         refreshTimer.restart()
+    }
+
+    // --- Mode helpers ---
+
+    // Unique resolutions (WxH) derived from a monitor's flat mode list.
+    function getResolutions(modes) {
+        var seen = ({})
+        var result = []
+        for (var i = 0; i < modes.length; i++) {
+            var m = modes[i]
+            var key = m.width + "x" + m.height
+            if (!seen[key]) {
+                seen[key] = true
+                result.push({ text: key, width: m.width, height: m.height })
+            }
+        }
+        return result
+    }
+
+    // Refresh rates available for a given resolution, sorted highest-first.
+    function getRefreshRates(modes, width, height) {
+        var result = []
+        for (var i = 0; i < modes.length; i++) {
+            var m = modes[i]
+            if (m.width === width && m.height === height) {
+                result.push({ text: m.refresh.toFixed(2) + "Hz", refresh: m.refresh, width: width, height: height })
+            }
+        }
+        result.sort(function(a, b) { return b.refresh - a.refresh })
+        return result
     }
 
     function applyMode(monitorName, width, height, refresh) {

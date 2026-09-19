@@ -18,10 +18,8 @@ PluginComponent {
     property string outputBuffer: ""
     property var syncedBrightness: ({})
     property var syncedContrast: ({})
-    property var syncedReinit: ({})
     property bool popoutVisible: false
     property var pendingBrightness: null  // Monitor info for brightness to apply after turning on
-    property var pendingReinitSwitch: null  // {name, modeStr} while a forced link re-init cycle runs
 
     // Only sync when popout is visible (saves CPU when closed)
     Timer {
@@ -38,7 +36,6 @@ PluginComponent {
         // Sync Brightness
         var updatedBrightness = {}
         var updatedContrast = {}
-        var updatedReinit = {}
         
         for (var i = 0; i < monitors.length; i++) {
             var bKey = "brightness_" + monitors[i].name
@@ -46,9 +43,6 @@ PluginComponent {
             
             var cKey = "contrast_" + monitors[i].name
             updatedContrast[cKey] = pluginService.loadPluginData("displayManager", cKey, 50)
-            
-            var rKey = "reinit_" + monitors[i].name
-            updatedReinit[rKey] = pluginService.loadPluginData("displayManager", rKey, false)
         }
         
         if (JSON.stringify(updatedBrightness) !== JSON.stringify(syncedBrightness)) {
@@ -56,9 +50,6 @@ PluginComponent {
         }
         if (JSON.stringify(updatedContrast) !== JSON.stringify(syncedContrast)) {
             syncedContrast = updatedContrast
-        }
-        if (JSON.stringify(updatedReinit) !== JSON.stringify(syncedReinit)) {
-            syncedReinit = updatedReinit
         }
     }
 
@@ -72,26 +63,6 @@ PluginComponent {
         var key = "contrast_" + monitorName
         if (syncedContrast[key] !== undefined) return syncedContrast[key]
         return 50
-    }
-
-    function getReinit(monitorName) {
-        var key = "reinit_" + monitorName
-        if (syncedReinit[key] !== undefined) return syncedReinit[key]
-        return false
-    }
-
-    function toggleReinit(monitorName) {
-        var key = "reinit_" + monitorName
-        var next = !getReinit(monitorName)
-        if (pluginService) {
-            pluginService.savePluginData("displayManager", key, next)
-        }
-        var updated = {}
-        for (var k in syncedReinit) {
-            updated[k] = syncedReinit[k]
-        }
-        updated[key] = next
-        syncedReinit = updated
     }
 
     // --- Layout ---
@@ -385,7 +356,7 @@ PluginComponent {
 
                                         ComboBox {
                                             id: rrCombo
-                                            width: parent.width - 56
+                                            width: parent.width - 24
                                             height: 30
                                             model: card.refreshRates
                                             textRole: "text"
@@ -443,38 +414,6 @@ PluginComponent {
                                                 var res = card.resolutions[card.resIndex]
                                                 card.rrIndex = index
                                                 root.applyMode(modelData.name, res.width, res.height, rate.refresh)
-                                            }
-                                        }
-
-                                        // Forced link re-init: cycles the output (off -> on) before
-                                        // applying the new mode. Some panels fail to lock their
-                                        // DisplayPort link on a rate change (black screen or noise until
-                                        // the cable is replugged); the cycle retrains the link, which is
-                                        // what replugging did. Opt-in per monitor, off by default.
-                                        // Caveat: disabling the output removes it from Xwayland, which
-                                        // crashes Steam and other GTK/X11 clients. See README.
-                                        Rectangle {
-                                            width: 24
-                                            height: 24
-                                            radius: 12
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            color: root.getReinit(modelData.name)
-                                                ? Theme.primaryContainer
-                                                : Theme.surfaceContainerHighest
-
-                                            DankIcon {
-                                                anchors.centerIn: parent
-                                                name: "autorenew"
-                                                size: 16
-                                                color: root.getReinit(modelData.name)
-                                                    ? Theme.onPrimaryContainer
-                                                    : Theme.surfaceVariantText
-                                            }
-
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: root.toggleReinit(modelData.name)
                                             }
                                         }
                                     }
@@ -806,44 +745,8 @@ PluginComponent {
 
     function applyMode(monitorName, width, height, refresh) {
         var modeStr = `${width}x${height}@${refresh.toFixed(3)}`
-
-        if (!getReinit(monitorName)) {
-            Quickshell.execDetached(["niri", "msg", "output", monitorName, "mode", modeStr])
-            refreshTimer.restart()
-            return
-        }
-
-        // Cycle the output off/on first: the link is torn down and retrained, then the
-        // target mode is applied on the fresh link.
-        pendingReinitSwitch = { name: monitorName, modeStr: modeStr }
-        reinitOnTimer.stop()
-        reinitModeTimer.stop()
-        Quickshell.execDetached(["niri", "msg", "output", monitorName, "off"])
-        reinitOnTimer.restart()
-    }
-
-    Timer {
-        id: reinitOnTimer
-        interval: 1200
-        repeat: false
-        onTriggered: {
-            if (!root.pendingReinitSwitch) return
-            Quickshell.execDetached(["niri", "msg", "output", root.pendingReinitSwitch.name, "on"])
-            reinitModeTimer.restart()
-        }
-    }
-
-    Timer {
-        id: reinitModeTimer
-        interval: 900
-        repeat: false
-        onTriggered: {
-            if (!root.pendingReinitSwitch) return
-            var pending = root.pendingReinitSwitch
-            root.pendingReinitSwitch = null
-            Quickshell.execDetached(["niri", "msg", "output", pending.name, "mode", pending.modeStr])
-            refreshTimer.restart()
-        }
+        Quickshell.execDetached(["niri", "msg", "output", monitorName, "mode", modeStr])
+        refreshTimer.restart()
     }
 
     Timer {

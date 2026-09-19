@@ -9,8 +9,6 @@ A **DankMaterialShell (DMS)** plugin that lets you:
 - Toggle **Niri** displays on/off  
 - Control hardware monitor brightness, constrast via DDC/CI
 - Control resolution and refresh rate
-- Optionally force a DisplayPort link re-init before a rate change (workaround for
-  panels that intermittently fail to lock at high refresh rates)
 
 Designed to be lightweight, fast, and bar-friendly.
 
@@ -39,62 +37,59 @@ Click the bar pill to open the display list. Each monitor card has:
 | Scale `-` / `+` | Output scale, 0.5 – 3.0 |
 | Resolution dropdown | Resolution, keeping the current refresh rate when available |
 | Refresh rate dropdown | Refresh rate for the selected resolution |
-| ⟳ button | Forced link re-init before the next mode change (see below) |
 | Brightness / Contrast sliders | Hardware values via DDC/CI (`ddcutil setvcp 10` / `12`) |
 
-Brightness, contrast, and the re-init flag are stored per connector name in the DMS
-plugin settings (`reinit_<connector>`, default `false`).
+Brightness and contrast are stored per connector name in the DMS plugin settings.
 
 ---
 
-## Forced link re-init (workaround)
+## Known issue: black screen or noise after a refresh-rate change
 
-Some panels intermittently fail to lock their DisplayPort main link when the refresh rate
-changes: the screen goes black or fills with noise, while the connector still reports as
-connected and DDC/CI keeps answering. Only unplugging the cable brought it back.
+Reported on a `WAM SFUCW-27300` 1080p/300 Hz panel (EDID 1.4, NVIDIA open driver
+610/615, Niri, two other monitors at 60 Hz): switching that monitor from 60 Hz to a high
+rate intermittently leaves it black or full of noise — roughly **1 in 3** times. While it
+is black, everything else looks healthy:
 
-Enabling the ⟳ button next to the refresh rate dropdown makes the next mode change on that
-monitor run as:
+- `niri msg outputs` still reports the output active at the requested mode
+- `/sys/class/drm/*-DP-1/{status,enabled,dpms}` = `connected` / `enabled` / `On`
+- `ddcutil` still talks to the monitor (brightness reads back)
+- the kernel and the driver log nothing — no NVRM message, no Xid
 
-```bash
-niri msg output <name> off
-sleep 1.2
-niri msg output <name> on      # link is torn down and retrained
-sleep 0.9
-niri msg output <name> mode <W>x<H>@<Hz>
+That panel declares 60/120/165/200/240 Hz in its EDID and runs the 280/300 Hz modes at
+97.5% of the maximum dotclock it reports (702 MHz of 720 MHz), so the driver's synthesised
+high rates sit right at the panel's ceiling.
+
+### What was tried and did **not** help
+
+Cycling the output (`niri msg output <name> off` → `on` → mode) before applying the new
+rate, i.e. forcing a DisplayPort link re-init. Logged sequence on a failing attempt:
+
+```
+1/3 output off      -> niri: disconnecting connector
+2/3 output on       -> niri: connecting connector, picks 60 Hz (panel fine)
+3/3 mode 300 Hz     -> niri: output picking mode  ->  panel black again
 ```
 
-The cycle retrains the link, which is what replugging the cable did.
+So the failure is tied to those modes themselves, not to stale link state, and the re-init
+does not change the odds. (This workaround shipped in 1.2.0 and was removed in 1.2.1.)
 
-**Off by default.** With the button off, the plugin runs exactly one command per change
-(`niri msg output <name> mode ...`), as before.
+### What does help
 
-### Caveats
+1. **Go back to 60 Hz** with a plain mode change — no output removal, X11 clients unaffected:
 
-- The panel blanks for ~2 seconds while the output is cycled.
-- Disabling an output removes it from Xwayland. **This crashes Steam and other GTK/X11
-  clients** (observed as `segfault ... in libgdk-x11-2.0.so.0` right after the output is
-  removed) and can re-arrange windows/workspaces. Enabling this while a game or Steam is
-  open is not recommended.
-- It is a workaround, not a fix: the underlying failure is intermittent (~1 in 3 rate
-  changes on the affected panel), and the cycle only makes the transition more likely to
-  take.
+   ```bash
+   niri msg output DP-1 mode "1920x1080@60.000"
+   ```
 
-### If the screen already went black
+   Verified to restore the picture from a black-but-enabled state.
+2. If that is not enough, escalate: `niri msg action power-off-monitors` + `power-on-monitors`,
+   then `niri msg output DP-1 off` + `on` (this one removes the X11 output — see below),
+   then the cable.
+3. Consider a rate the panel actually declares (240 Hz) instead of the synthesised 280/300 Hz.
 
-Try the cheapest recovery first, from another monitor or over SSH:
+### Caveat: disabling an output breaks X11 clients
 
-```bash
-# 1. plain mode changes - no output removal, X11 clients unaffected
-niri msg output DP-1 mode "1920x1080@60.000"; sleep 1
-niri msg output DP-1 mode "1920x1080@300.000"
-
-# 2. DPMS cycle on all monitors - no output removal
-niri msg action power-off-monitors; sleep 2; niri msg action power-on-monitors
-
-# 3. output re-init - same as replugging the cable (may crash Steam/GTK apps)
-niri msg output DP-1 off; sleep 2; niri msg output DP-1 on
-```
-
-Or, with the ⟳ button enabled, re-select the current refresh rate to force a re-init
-without changing rates.
+`niri msg output <name> off` (and unplugging the cable) removes that output from Xwayland.
+Steam segfaults in `libgdk-x11-2.0.so.0` within about a second of that happening (reproduced
+twice, with a backtrace uploaded by Steam's crash handler), and empty workspace IDs on the
+output can be renumbered. Plain mode changes do not trigger this — prefer them for recovery.

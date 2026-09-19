@@ -8,6 +8,8 @@ A **DankMaterialShell (DMS)** plugin that runs as a bar widget, providing contro
 - Change resolution and refresh rate via `niri msg output <name> mode <W>x<H>@<Hz>`
 - Adjust output scale via `niri msg output <name> scale <float>`
 - Control **hardware** brightness and contrast via `ddcutil setvcp`
+- Optionally cycle the output (`off` → `on`) before a mode change, as a workaround for
+  panels that intermittently fail to lock their DisplayPort link after a rate change
 
 The plugin is a **single QML file** (`DisplayManager.qml`) that Quickshell/DMS loads at runtime. There is no build step.
 
@@ -25,7 +27,7 @@ The plugin is a **single QML file** (`DisplayManager.qml`) that Quickshell/DMS l
 
 ```
 .
-├── DisplayManager.qml   # Entire plugin (UI + logic, ~624 lines)
+├── DisplayManager.qml   # Entire plugin (UI + logic, ~875 lines)
 ├── plugin.json          # DMS plugin manifest
 ├── assets/
 │   └── screenshot.png   # Screenshot for the registry listing
@@ -43,7 +45,30 @@ The plugin is a **single QML file** (`DisplayManager.qml`) that Quickshell/DMS l
    - Scale radio buttons
    - Brightness and contrast sliders
 3. **Actions**: When a user changes a setting, the plugin executes the appropriate `niri msg` or `ddcutil` command via `Quickshell.execDetached(["sh", "-c", cmd])`.
-4. **Settings persistence**: Brightness and contrast values are saved via `pluginService.savePluginData("displayManager", key, value)` and restored on next load.
+4. **Forced link re-init** (optional, per monitor, `reinit_<connector>` plugin setting): when
+   enabled, `applyMode()` runs `off` → 1.2 s → `on` → 0.9 s → `mode` instead of a single
+   `mode` call, and re-applies the target mode afterwards. Note the side effect: disabling an
+   output removes it from Xwayland, which crashes Steam/GTK clients.
+5. **Settings persistence**: Brightness, contrast and the re-init flag are saved via `pluginService.savePluginData("displayManager", key, value)` and restored on next load.
+
+## Known panel quirk (context for the workaround)
+
+From investigating a `WAM SFUCW-27300` 1080p/300 Hz panel (2026-09) on `nvidia-open` 610/615
+with Niri plus two 60 Hz monitors:
+
+- Switching that monitor from 60 Hz to a high rate fails to lock the DisplayPort link roughly
+  **1 in 3** times: black screen or noise, while `card1-DP-1/status` stays `connected`,
+  `dpms=On`, DDC/CI keeps answering and the driver logs nothing (no NVRM/Xid entry).
+- Any link re-init fixes it, which is why replugging the cable worked. `niri msg output X off`
+  + `on` is the software equivalent (verified: picture returns, same mode re-picked).
+- The 300 Hz mode is synthesised by the driver from the EDID range limits (48–300 Hz, max
+  dotclock 720 MHz) and needs 702 MHz — 97.5% of that ceiling. 280 Hz is likewise not in the
+  EDID; 60/120/165/200/240 are.
+- Disabling the output removes it from Xwayland → `steam` segfaults in
+  `libgdk-x11-2.0.so.0` within ~1 s (reproduced twice), and empty workspace IDs on that output
+  can be renumbered. Plain rate changes (no output removal) do **not** crash it.
+- Recovery ladder, least destructive first: plain 60→target mode change → DPMS cycle
+  (`niri msg action power-off-monitors` / `power-on-monitors`) → output off/on → cable.
 
 ## How to Update the Plugin
 
@@ -96,3 +121,13 @@ If you were publishing this for the first time (already done):
 - `ddcutil` requires I²C permissions. Users need to be in the `i2c` group or have a udev rule.
 - The plugin requires the `process` permission (`plugin.json`) to execute shell commands.
 - Brightness/contrast use `--noverify` flag on `ddcutil` for speed, at the cost of not verifying the value was actually set.
+- Local testing loop: edit here, copy into `~/.config/DankMaterialShell/plugins/displayManagerNiri/`
+  (that directory is its own checkout of this repo), then reload without restarting the shell:
+
+  ```bash
+  cp DisplayManager.qml plugin.json ~/.config/DankMaterialShell/plugins/displayManagerNiri/
+  dms ipc call plugins reload displayManager     # → PLUGIN_RELOAD_SUCCESS: displayManager
+  ```
+
+  QML errors surface in the journal (`journalctl -f | grep qml`). `qmllint DisplayManager.qml`
+  parses the file standalone (the `qs.*` imports stay unresolved, but syntax errors show up).
